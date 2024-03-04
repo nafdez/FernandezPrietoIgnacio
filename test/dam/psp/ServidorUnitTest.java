@@ -427,7 +427,7 @@ class ServidorUnitTest {
 	void test24() {
 		try (Socket socket = new Socket("localhost", 9000)){
 			socket.setSoTimeout(10000);
-			
+		
 			DataOutputStream out = new DataOutputStream(socket.getOutputStream());
 			out.writeUTF("cifrar");
 			out.writeUTF("psp");
