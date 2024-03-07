@@ -4,6 +4,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
@@ -24,7 +25,12 @@ public class Servidor {
 
 	private final ExecutorService POOL = Executors.newCachedThreadPool();
 
-	Servidor(int port) throws IOException {
+	private final KeyStore KEY_STORE;
+
+	Servidor(int port) throws Exception {
+		KEY_STORE = KeyStore.getInstance("PKCS12");
+		KEY_STORE.load(new FileInputStream("res/keystore.p12"), "practicas".toCharArray());
+
 		ServerSocket serverSocket = new ServerSocket(port);
 
 		log(serverSocket.getInetAddress(), "info", "listening on " + port);
@@ -102,15 +108,19 @@ public class Servidor {
 
 		try {
 			message = in.readAllBytes();
+			if (message.length <= 0) {
+				out.writeUTF("ERROR:Se esperaban datos");
+			}
 		} catch (SocketTimeoutException e) {
-			log(client.getInetAddress(), "error", "timeout:message");
+			log(client.getInetAddress(), "error", "timeout:timeout");
 			out.writeUTF("ERROR:Read timed out");
 			return;
-		} catch (EOFException e) {
-			log(client.getInetAddress(), "error", "timeout:message");
-			out.writeUTF("ERROR:Se esperaban datos");
-			return;
-		}
+			// No sé muy bien qué trataba de hacer aquí con el EOFException jjajaj
+		} // catch (EOFException e) {
+//			log(client.getInetAddress(), "error", "EOF:se esperaban datos");
+//			out.writeUTF("ERROR:Se esperaban datos");
+//			return;
+//		}
 
 		MessageDigest md;
 		try {
@@ -160,22 +170,9 @@ public class Servidor {
 			return;
 		}
 
-		KeyStore ks;
-		try {
-			ks = KeyStore.getInstance("PKCS12");
-		} catch (KeyStoreException e) {
-			e.printStackTrace();
-			return;
-		}
-		try {
-			ks.load(new FileInputStream("res/keystore.p12"), "practicas".toCharArray());
-		} catch (NoSuchAlgorithmException | CertificateException | IOException e) {
-			e.printStackTrace();
-		}
-
 		Certificate cert;
 		try {
-			cert = ks.getCertificate(alias);
+			cert = KEY_STORE.getCertificate(alias);
 		} catch (KeyStoreException e) {
 			e.printStackTrace();
 			return;
@@ -213,43 +210,41 @@ public class Servidor {
 		String certHash;
 		byte[] data;
 
-		// TODO: "ERROR:'aliasnoválido' no es un certificado"
+		String failedOn = "Se esperaba un alias";
 		try {
 			alias = in.readUTF();
-		} catch (SocketTimeoutException e) {
-			log(client.getInetAddress(), "error", "timeout:algorithm");
-			out.writeUTF("ERROR:Read timed out");
-			return;
-		} catch (EOFException e) {
-			log(client.getInetAddress(), "error", "timeout:algorithm");
-			out.writeUTF("ERROR:Se esperaba un alias");
-			return;
-		}
+			if (alias == null) {
+				out.writeUTF("ERROR:" + failedOn);
+			}
+			Certificate cert = KEY_STORE.getCertificate(alias);
+			if (cert == null) {
+				out.writeUTF("ERROR:'" + alias + "' no es un certificado");
+				return;
+			}
 
-		// TODO: "ERROR:'alumno' no contiene una clave RSA"
-		try {
 			certHash = in.readUTF();
+
+			failedOn = "Se esperaban datos";
+			data = in.readAllBytes();
+			if (data == null) {
+				out.writeUTF("ERROR:Se esperaban datos");
+			}
 		} catch (SocketTimeoutException e) {
-			log(client.getInetAddress(), "error", "timeout:cert");
 			out.writeUTF("ERROR:Read timed out");
 			return;
 		} catch (EOFException e) {
-			log(client.getInetAddress(), "error", "timeout:cert");
-			out.writeUTF("ERROR:Se esperaba un certificado");
+			out.writeUTF(failedOn);
 			return;
+		} catch (Exception e) {
+			e.printStackTrace();
 		}
 
-		try {
-			data = in.readAllBytes();
-		} catch (SocketTimeoutException e) {
-			log(client.getInetAddress(), "error", "timeout:message");
-			out.writeUTF("ERROR:Read timed out");
-			return;
-		} catch (EOFException e) {
-			log(client.getInetAddress(), "error", "timeout:message");
-			out.writeUTF("ERROR:Se esperaban datos");
-			return;
-		}
+//		try {
+//			cert = KEY_STORE.getCertificate(alias);
+//		} catch (KeyStoreException e) {
+//			e.printStackTrace();
+//			return;
+//		}
 	}
 
 	private String byteArrayToUTF(byte[] bytes) {
@@ -264,7 +259,7 @@ public class Servidor {
 		System.out.printf("(%s):%s:%s%n", address, type, message);
 	}
 
-	public static void main(String[] args) throws IOException {
+	public static void main(String[] args) throws Exception {
 		Servidor server = new Servidor(9000);
 	}
 
